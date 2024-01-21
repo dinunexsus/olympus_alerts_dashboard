@@ -1,0 +1,5 @@
+aiohttp
+Flask
+IMAPClient
+python-dotenv
+asyncio
