@@ -222,4 +222,3 @@ async def process_alerts_for_date(date):
     except Exception as e:
         logging.error(f"Error processing alerts: {e}")
         return [], 0, 0
-

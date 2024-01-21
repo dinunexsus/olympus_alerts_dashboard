@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 import os
 from datetime import datetime
-from test import *
+from alerts import *
 import asyncio
 
 load_dotenv()
@@ -41,4 +41,3 @@ def api_process_alerts():
 
 if __name__ == '__main__':
     app.run(debug=True)
-

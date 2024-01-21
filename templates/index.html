@@ -1,0 +1,125 @@
+<!-- templates/alerts.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Alerts Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        .container {
+            width: 90%;
+            margin: auto;
+        }
+        
+    </style>
+</head>
+<body>
+    
+    <div class="container">
+        
+        <h2>Alerts Dashboard</h2>
+        <form action="/process_alerts" method="post">
+            <label for="date">Select Date:</label>
+           
+            <input type="date" id="date" name="date" value="{{ default_date }}" required>
+
+            <input type="submit" value="Get Alerts">
+        </form>
+
+        
+
+        {% if alerts %}
+        <table>
+            <tr>
+                <th>Date</th>
+                <th>Tiny ID</th>
+                <th>Alert ID</th>
+                <th>Alias</th>
+                <th>Alert Name</th>
+                <th>Description</th>
+                <th>Priority</th>
+                <th>Zone</th>
+                <th>Cluster</th>
+                <th>Namespace</th>
+                <th>Alert Creation Time</th>
+                <th>Alert Last Updated At</th>
+                <th>Count</th>
+                <th>Is Seen</th>
+                <th>Acknowledged</th>
+                <th>Last Occured At</th>
+                <th>Source</th>
+                <th>Owner</th>
+                <th>Severity</th>
+                <th>Status</th>
+                <th>Service</th>
+                <th>Job</th>
+                <th>Ack Time</th>
+                <th>Alert Ack By</th>
+                <th>Time To ACK</th>
+                <th>Time To Close</th>
+                <th>Alert Link</th>
+                <th>Runbook</th>
+                <th>Prometheus</th>
+                <th>Grafana</th>
+                <th>Contact Method</th>
+            </tr>
+            {% for alert in alerts %}
+            <tr>
+                <td>{{ alert['Date'] }}</td>
+                <td>{{ alert['Tiny ID'] }}</td>
+                <td>{{ alert['Alert ID'] }}</td>
+                <td>{{ alert['Alias'] }}</td>
+                <td>{{ alert['Alert Name'] }}</td>
+                <td>{{ alert['Description'] }}</td>
+                <td>{{ alert['Priority'] }}</td>
+                <td>{{ alert['Zone'] }}</td>
+                <td>{{ alert['Cluster'] }}</td>
+                <td>{{ alert['Namespace'] }}</td>
+                <td>{{ alert['Alert Creation Time'] }}</td>
+                <td>{{ alert['Alert Last Updated At'] }}</td>
+                <td>{{ alert['Count'] }}</td>
+                <td>{{ alert['Is Seen'] }}</td>
+                <td>{{ alert['Acknowledged'] }}</td>
+                <td>{{ alert['Last Occured At'] }}</td>
+                <td>{{ alert['Source'] }}</td>
+                <td>{{ alert['Owner'] }}</td>
+                <td>{{ alert['Severity'] }}</td>
+                <td>{{ alert['Status'] }}</td>
+                <td>{{ alert['Service'] }}</td>
+                <td>{{ alert['Job'] }}</td>
+                <td>{{ alert['Ack Time'] }}</td>
+                <td>{{ alert['Alert Ack By'] }}</td>
+                <td>{{ alert['Time To ACK'] }}</td>
+                <td>{{ alert['Time To Close'] }}</td>
+                <td><a href="{{ alert['Alert Link'] }}">Link</a></td>
+                <td><a href="{{ alert['Runbook '] }}">Runbook</a></td>
+                <td><a href="{{ alert['Prometheus'] }}">Prometheus</a></td>
+                <td><a href="{{ alert['Grafana'] }}">Grafana</a></td>
+                <td>{{ alert['Contact Method'] }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <p>No alerts found for the selected date.</p>
+        {% endif %}
+    </div>
+</body>
+</html>
