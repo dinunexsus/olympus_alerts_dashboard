@@ -207,7 +207,7 @@ async def process_alerts_for_date(date):
             emails = fetch_emails(client, search_query)
             if not emails:
                 logging.info("No emails found for the given date.")
-                return []
+                return [], 0, 0 
 
             processed_results = await asyncio.gather(
                 *[process_email_async(msg, OPS_GENIE_API_KEY, formatted_date) for msg in emails]
@@ -215,6 +215,9 @@ async def process_alerts_for_date(date):
 
             end_time = time.time()
             processing_time = end_time - start_time
+            processed_results = [result for result in processed_results if result is not None]
+
+
             count_alerts = len(processed_results)
             logging.info(f"Processed {count_alerts} alerts in {processing_time:.2f} seconds.")
             return processed_results, processing_time, count_alerts
