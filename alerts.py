@@ -9,16 +9,20 @@ from imapclient import IMAPClient
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Global cache dictionary
+cache = {}
+
 async def get_alert_details(alert_id, OPS_GENIE_API_KEY):
-    if not OPS_GENIE_API_KEY:
-        logging.error("Missing OpsGenie API key.")
-        return None
+    # Check if the data is already in the cache
+    if alert_id in cache:
+        return cache[alert_id]
 
     headers = {"Authorization": "GenieKey " + OPS_GENIE_API_KEY}
     url = f"https://api.opsgenie.com/v2/alerts/{alert_id}"
 
     async with aiohttp.ClientSession() as session:
         retries = 3
+        backoff_factor = 2
         for attempt in range(retries):
             try:
                 async with session.get(url, headers=headers) as response:
@@ -26,13 +30,17 @@ async def get_alert_details(alert_id, OPS_GENIE_API_KEY):
                         logging.error("Unauthorized access. Check your API key.")
                         return None
                     elif response.status == 429:
-                        logging.warning("Rate limit exceeded. Please try again later.")
-                        return None
+                        wait_time = backoff_factor ** attempt
+                        logging.warning(f"Rate limit exceeded. Retrying in {wait_time} seconds.")
+                        await asyncio.sleep(wait_time)
+                        continue
                     elif 400 <= response.status < 500:
                         logging.error(f"Client Error: {response.status}")
                         return None
 
                     data = await response.json()
+                    # Save the fetched data in the cache
+                    cache[alert_id] = data.get("data")
                     return data.get("data")
             except aiohttp.ClientError as e:
                 if attempt < retries - 1:
@@ -41,7 +49,42 @@ async def get_alert_details(alert_id, OPS_GENIE_API_KEY):
                 else:
                     logging.error(f"Error fetching OpsGenie data: {e}")
                     return None
-            
+                
+def parse_iso_date(date_string):
+    # Split the date string into date and time parts
+    date_part, time_part = date_string.split('T')
+    
+    # Check if the time part contains a timezone
+    if '+' in time_part:
+        time_main, tz = time_part.split('+')
+    elif 'Z' in time_part:
+        time_main = time_part.rstrip('Z')
+        tz = '00:00'
+    else:
+        time_main = time_part
+        tz = None
+
+    # Split the time part into main and fractional parts
+    if '.' in time_main:
+        time_main, fractional = time_main.split('.')
+        # Ensure the fractional part is always 6 digits (microseconds)
+        fractional = fractional.ljust(6, '0')
+        time_main = f'{time_main}.{fractional}'
+    else:
+        time_main = f'{time_main}.000000'  # Add zero microseconds if not present
+
+    # Reconstruct the date string
+    if tz:
+        date_string = f'{date_part}T{time_main}+{tz}'
+    else:
+        date_string = f'{date_part}T{time_main}'
+
+    try:
+        # Parse the corrected date string
+        return datetime.fromisoformat(date_string)
+    except ValueError as e:
+        logging.error(f"Date parsing error: Invalid isoformat string: '{date_string}' - {e}")
+        return None
 
 def extract_field(content, field_name):
     try:
@@ -89,6 +132,9 @@ def parse_email(msg):
         return {}
     
 async def process_email_async(msg, OPS_GENIE_API_KEY, formatted_date):
+    time_difference = None  
+    time_to_ack = None  
+    time_to_close = None
     try:
        email_data = parse_email(msg)
        if email_data['show_alert_link']:
@@ -111,7 +157,9 @@ async def process_email_async(msg, OPS_GENIE_API_KEY, formatted_date):
                 source = alert_details.get('source', '')
                 owner = alert_details.get('owner', '')
                 ack_time = alert_details.get('report', {}).get('ackTime', None)
+                close_time = alert_details.get('report', {}).get('closeTime', None)
                 acknowledged_by = alert_details.get('report', {}).get('acknowledgedBy', '')
+                closed_by = alert_details.get('report', {}).get('closedBy', '')
                 priority = alert_details.get('priority', '').upper()  
                 severity = alert_details.get('details', {}).get('severity', '')
                 prometheus_url = alert_details.get('details', {}).get('prometheus_url', '')
@@ -122,24 +170,28 @@ async def process_email_async(msg, OPS_GENIE_API_KEY, formatted_date):
                 service = alert_details.get('details', {}).get('service', '')
                 job = alert_details.get('details', {}).get('job', '')
                 contact_method = "Call" if priority in ["P1", "P2"] else "Email"
+                tags = alert_details.get('tags', [])
                 
                 try:
-                    # Converting to datetime
-                    created_at_datetime = datetime.fromisoformat(created_at)
-                    updated_at_datetime = datetime.fromisoformat(updated_at)
+                    # Use the parse_iso_date function for parsing
+                    created_at_datetime = parse_iso_date(created_at)
+                    updated_at_datetime = parse_iso_date(updated_at)
 
-                    # Convert ack_time to minutes (assuming it's in milliseconds)
-                    ack_time_minutes = int(ack_time) / 60000
+                    if created_at_datetime and updated_at_datetime:
+                        ack_time_minutes = int(ack_time) / 60000 if ack_time is not None else None
+                        close_time = int(close_time) / 60000 if close_time is not None else None
+                        alert_duration_minutes = (updated_at_datetime - created_at_datetime).total_seconds() / 60
 
-                    # Calculate the duration for which the alert was open in minutes
-                    alert_duration_minutes = (updated_at_datetime - created_at_datetime).total_seconds() / 60
+                        time_to_ack = round(ack_time_minutes, 3) if ack_time_minutes is not None else None
+                        time_to_close = round(alert_duration_minutes, 3)
 
-                    # Record the calculated times
-                    time_to_ack = ack_time_minutes
-                    time_to_close = alert_duration_minutes
+                        if time_to_ack is not None and time_to_close is not None:
+                            time_difference = abs(time_to_close - time_to_ack)
+                            time_difference = round(time_difference, 3)
 
                 except ValueError as e:
                     logging.error(f"Date parsing error: {e}")
+                    # Set to None in case of error
                     time_to_ack = None
                     time_to_close = None
 
@@ -153,6 +205,7 @@ async def process_email_async(msg, OPS_GENIE_API_KEY, formatted_date):
                 "Alert Name": email_data['alertname'],
                 "Description":email_data['description'], 
                 "Priority":priority,
+                "Tags":tags,
                 "Zone":email_data['zone'], 
                 "Cluster":cluster,
                 "Namespace":namespace,
@@ -172,11 +225,15 @@ async def process_email_async(msg, OPS_GENIE_API_KEY, formatted_date):
                 "Alert Ack By":acknowledged_by,
                 "Time To ACK":time_to_ack,
                 "Time To Close": time_to_close,
+                "Close Time":close_time,
+                "Closed By": closed_by, 
                 "Alert Link":email_data['show_alert_link'], 
                 "Runbook ":runbook_url,
                 "Prometheus": prometheus_url,
                 "Grafana":grafana_url, 
                 "Contact Method":contact_method, 
+                "Time Diff":time_difference
+                
                 
                     
                 
@@ -207,7 +264,7 @@ async def process_alerts_for_date(date):
             emails = fetch_emails(client, search_query)
             if not emails:
                 logging.info("No emails found for the given date.")
-                return [], 0, 0 
+                return [], 0, 0
 
             processed_results = await asyncio.gather(
                 *[process_email_async(msg, OPS_GENIE_API_KEY, formatted_date) for msg in emails]
@@ -216,8 +273,6 @@ async def process_alerts_for_date(date):
             end_time = time.time()
             processing_time = end_time - start_time
             processed_results = [result for result in processed_results if result is not None]
-
-
             count_alerts = len(processed_results)
             logging.info(f"Processed {count_alerts} alerts in {processing_time:.2f} seconds.")
             return processed_results, processing_time, count_alerts
